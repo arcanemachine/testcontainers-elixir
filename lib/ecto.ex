@@ -235,6 +235,7 @@ defmodule Testcontainers.Ecto do
     password = Keyword.get(options, :password, "test")
     database = Keyword.get(options, :database, "#{Atom.to_string(app)}_test")
     migrations_path = Keyword.get(options, :migrations_path, "priv/repo/migrations")
+    seeds_path = Keyword.get(options, :seeds_path, nil)
     persistent_volume_name = Keyword.get(options, :persistent_volume_name, nil)
 
     container_module =
@@ -280,6 +281,11 @@ defmodule Testcontainers.Ecto do
             do: Application.app_dir(app, migrations_path),
             else: migrations_path
 
+        absolute_seeds_path =
+          if seeds_path && Path.absname(seeds_path) != seeds_path,
+            do: Application.app_dir(app, seeds_path),
+            else: seeds_path
+
         :ok =
           case File.exists?(absolute_migrations_path) do
             false ->
@@ -289,12 +295,29 @@ defmodule Testcontainers.Ecto do
               :ok
           end
 
-        with {:ok, _, _} <- run_migrations(repo, absolute_migrations_path) do
+        with {:ok, _, _} <- run_migrations(repo, absolute_migrations_path),
+             :ok <- maybe_run_seeds(absolute_seeds_path) do
           {:ok, container}
         end
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp maybe_run_seeds(nil = _seeds_path) do
+    Logger.log("Database seed file does not exist, this will be ignored")
+    :ok
+  end
+
+  defp maybe_run_seeds(seeds_path) do
+    try do
+      Logger.log("Loading database seeds...")
+      Code.eval_file(seeds_path)
+      :ok
+    rescue
+      e ->
+        {:error, e}
     end
   end
 
